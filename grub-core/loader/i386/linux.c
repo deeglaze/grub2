@@ -76,8 +76,10 @@ static struct grub_relocator *relocator = NULL;
 static void *efi_mmap_buf;
 static grub_size_t maximal_cmdline_size;
 static struct linux_kernel_params linux_params;
+static struct linux_i386_kernel_info_header *linux_kernel_info = NULL;
 static char *linux_cmdline;
 #ifdef GRUB_MACHINE_EFI
+static grub_efi_guid_t enable_unaccepted_memory_guid = GRUB_EFI_ENABLE_UNACCEPTED_MEMORY_GUID;
 static grub_efi_uintn_t efi_mmap_size;
 #else
 static const grub_size_t efi_mmap_size = 0;
@@ -341,6 +343,69 @@ grub_linux_setup_video (struct linux_kernel_params *params)
   return GRUB_ERR_NONE;
 }
 
+#ifdef GRUB_MACHINE_EFI
+/*
+ * Returns a pointer to the variable length region's entry that matches the
+ * given magic number, or NULL.
+ */
+static struct linux_i386_kernel_info_variable_header*
+    find_kernel_info_magic(grub_uint32_t magic)
+{
+  grub_uint8_t *variable_lki, *lki_end;
+
+  if (!linux_kernel_info)
+    return NULL;
+
+  lki_end = ((grub_uint8_t*)linux_kernel_info) + linux_kernel_info->whole_size;
+  variable_lki = ((grub_uint8_t*)linux_kernel_info) +
+                 linux_kernel_info->fixed_size;
+
+  /*
+   * If there is at least a header's worth of data available, search it for
+   * the given magic number.
+   */
+  while (variable_lki + sizeof(struct linux_i386_kernel_info_variable_header)
+         <= lki_end)
+  {
+    struct linux_i386_kernel_info_variable_header *hdr =
+        (struct linux_i386_kernel_info_variable_header*)variable_lki;
+
+    if (hdr->magic == magic)
+      return hdr;
+
+    variable_lki += hdr->whole_size;
+  }
+  return NULL;
+}
+
+static void
+grub_enable_unaccepted_memory(void)
+{
+  grub_efi_status_t status;
+  grub_efi_enable_unaccepted_memory_protocol_t *enable_unaccepted_memory;
+
+  enable_unaccepted_memory = (grub_efi_enable_unaccepted_memory_protocol_t *)
+                             grub_efi_locate_protocol (&enable_unaccepted_memory_guid,
+                                                       NULL);
+  if (enable_unaccepted_memory == NULL) {
+    grub_dprintf ("linux", "enable_unaccepted_memory protocol not found\n");
+    return;
+  }
+
+  status = enable_unaccepted_memory->enable();
+  if (status != GRUB_EFI_SUCCESS) {
+    grub_dprintf ("linux", "enable unaccepted memory failure: %lx\n", status);
+  }
+}
+
+static int
+grub_linux_supports_unaccepted_memory(void)
+{
+
+  return NULL != find_kernel_info_magic (LINUX_UMEM_MAGIC);
+}
+#endif
+
 /* Context for grub_linux_boot.  */
 struct grub_linux_boot_ctx
 {
@@ -514,6 +579,12 @@ grub_linux_boot (void)
   linux_params.acpi_rsdp_addr = grub_le_to_cpu64 (grub_rsdp_addr);
 #endif
 
+#ifdef GRUB_MACHINE_EFI
+  if (grub_linux_supports_unaccepted_memory()) {
+    grub_enable_unaccepted_memory();
+  }
+#endif
+
   mmap_size = find_mmap_size ();
   /* Make sure that each size is aligned to a page boundary.  */
   cl_offset = ALIGN_UP (mmap_size + sizeof (linux_params), 4096);
@@ -656,6 +727,9 @@ grub_cmd_linux (grub_command_t cmd __attribute__ ((unused)),
   grub_size_t align, min_align;
   int relocatable;
   grub_uint64_t preferred_address = GRUB_LINUX_BZIMAGE_ADDR;
+#ifdef GRUB_MACHINE_EFI
+  struct linux_i386_kernel_info_header lkih;
+#endif
 
   grub_dl_ref (my_mod);
 
@@ -830,6 +904,51 @@ grub_cmd_linux (grub_command_t cmd __attribute__ ((unused)),
     return grub_error(GRUB_ERR_BAD_OS,
 		      "kernel does not support 64-bit addressing");
 #endif
+
+  if (grub_le_to_cpu16 (linux_params.version) >= 0x0215)
+    {
+      grub_ssize_t lki_remaining;
+
+      grub_file_seek (file, lh.kernel_info_offset);
+      if (grub_file_read (file, &lkih, sizeof(lkih)) != sizeof(lkih))
+        {
+          if (!grub_errno)
+            grub_error (GRUB_ERR_BAD_OS, N_("premature end of file %s"), argv[0]);
+          goto fail;
+        }
+      if (lkih.ltop_magic != LINUX_LTOP_MAGIC)
+        {
+          grub_error (GRUB_ERR_BAD_OS, N_("invalid kernel info magic number: 0x%x"), lkih.ltop_magic);
+          goto fail;
+        }
+
+      linux_kernel_info = grub_zalloc (lkih.whole_size);
+      if (!linux_kernel_info)
+        goto fail;
+
+      grub_memcpy (linux_kernel_info, &lkih, sizeof(lkih));
+      lki_remaining = lkih.whole_size - sizeof(lkih);
+      /* Read the rest of the kernel_info block into lki */
+      if (lki_remaining)
+        {
+          if (grub_file_read (file, ((grub_uint8_t*)linux_kernel_info) + sizeof(lkih),
+                              lki_remaining) != lki_remaining)
+            {
+              if (!grub_errno)
+                grub_error (GRUB_ERR_BAD_OS, N_("premature end of file %s"), argv[0]);
+              goto fail;
+            }
+
+            if (lkih.fixed_size < sizeof(lkih) ||
+                lkih.whole_size < lkih.fixed_size)
+              {
+                grub_error (GRUB_ERR_BAD_OS,
+                            N_("invalid kernel_info size, fixed: 0x%x, whole: 0x%x"),
+                            lkih.fixed_size, lkih.whole_size);
+                goto fail;
+              }
+        }
+    }
 
   if (grub_le_to_cpu16 (linux_params.version) >= 0x0208)
     {

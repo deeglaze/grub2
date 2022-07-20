@@ -92,7 +92,7 @@ enum
     GRUB_VIDEO_LINUX_TYPE_SIMPLE = 0x70    /* Linear framebuffer without any additional functions.  */
   };
 
-/* For the Linux/i386 boot protocol version 2.10.  */
+/* For the Linux/i386 boot protocol version 2.15.  */
 struct linux_i386_kernel_header
 {
   grub_uint8_t code1[0x0020];
@@ -148,9 +148,10 @@ struct linux_i386_kernel_header
   grub_uint64_t pref_address;
   grub_uint32_t init_size;
   grub_uint32_t handover_offset;
+  grub_uint32_t kernel_info_offset;
 } GRUB_PACKED;
 
-/* Boot parameters for Linux based on 2.6.12. This is used by the setup
+/* Boot parameters for Linux based on 5.5. This is used by the setup
    sectors of Linux, and must be simulated by GRUB on EFI, because
    the setup sectors depend on BIOS.  */
 struct linux_kernel_params
@@ -325,12 +326,37 @@ struct linux_kernel_params
   grub_uint64_t pref_address;
   grub_uint32_t init_size;
   grub_uint32_t handover_offset;
+  grub_uint32_t kernel_info_offset;     /* Added in boot protocol 2.15 */
   /* Linux setup header copy - END. */
 
-  grub_uint8_t _pad7[40];
+  grub_uint8_t _pad7[36];
   grub_uint32_t edd_mbr_sig_buffer[EDD_MBR_SIG_MAX];	/* 290 */
   struct grub_e820_mmap e820_map[(0x400 - 0x2d0) / 20];	/* 2d0 */
 } GRUB_PACKED;
+
+#define LINUX_LTOP_MAGIC 0x506f544c
+struct linux_i386_kernel_info_header
+{
+  grub_uint32_t ltop_magic;
+  grub_uint32_t fixed_size;
+  grub_uint32_t whole_size;
+} GRUB_PACKED;
+
+struct linux_i386_kernel_info_header1
+{
+  struct linux_i386_kernel_info_header hdr;
+  grub_uint32_t max_setup_data;
+} GRUB_PACKED;
+
+struct linux_i386_kernel_info_variable_header
+{
+  grub_uint32_t magic;
+  grub_uint32_t whole_size;
+} GRUB_PACKED;
+
+#define LINUX_UMEM_MAGIC 0x6d654d55
+
+#define LINUX_KI_FIXED_SIZE
 #endif /* ! ASM_FILE */
 
 #endif /* ! GRUB_I386_LINUX_HEADER */
