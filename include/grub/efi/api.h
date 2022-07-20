@@ -354,6 +354,11 @@
     { 0x86, 0x2e, 0xc0, 0x1c, 0xdc, 0x29, 0x1f, 0x44 } \
   }
 
+#define GRUB_EFI_ENABLE_UNACCEPTED_MEMORY_GUID \
+  { 0xc5a010fe, 0x38a7, 0x4531, \
+    { 0x8a, 0x4a, 0x05, 0x00, 0xd2, 0xfd, 0x16, 0x49 } \
+  }
+
 struct grub_efi_sal_system_table
 {
   grub_uint32_t signature;
@@ -1709,6 +1714,7 @@ struct grub_efi_block_io
 };
 typedef struct grub_efi_block_io grub_efi_block_io_t;
 
+/* Protocols */
 struct grub_efi_shim_lock_protocol
 {
   grub_efi_status_t (*verify) (void *buffer, grub_uint32_t size);
@@ -1728,6 +1734,12 @@ struct grub_efi_rng_protocol
 				grub_efi_uint8_t *rng_value);
 };
 typedef struct grub_efi_rng_protocol grub_efi_rng_protocol_t;
+
+struct grub_efi_enable_unaccepted_memory_protocol
+{
+  grub_efi_status_t (*enable) (void);
+};
+typedef struct grub_efi_enable_unaccepted_memory_protocol grub_efi_enable_unaccepted_memory_protocol_t;
 
 #if (GRUB_TARGET_SIZEOF_VOID_P == 4) || defined (__ia64__) \
   || defined (__aarch64__) || defined (__MINGW64__) || defined (__CYGWIN__) \
