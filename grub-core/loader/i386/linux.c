@@ -376,6 +376,8 @@ static struct linux_i386_kernel_info_variable_header*
 
     variable_lki += hdr->whole_size;
   }
+  grub_printf ("Could not find magic 0x%x in 0x%x bytes\n",
+               magic, (unsigned)(lki_end - variable_lki));
   return NULL;
 }
 
@@ -397,6 +399,7 @@ grub_enable_unaccepted_memory(void)
   if (status != GRUB_EFI_SUCCESS) {
     grub_dprintf ("linux", "enable unaccepted memory failure: %x\n", status);
   }
+  grub_printf ("Successfully enabled unaccepted memory\n");
 }
 
 static int
@@ -659,6 +662,7 @@ grub_linux_boot (void)
 
     ctx.params->secure_boot = grub_efi_get_secureboot ();
 
+    grub_printf ("Exiting boot services\n");
     err = grub_efi_finish_boot_services (&efi_mmap_size, efi_mmap_buf, NULL,
 					 &efi_desc_size, &efi_desc_version);
     if (err)
@@ -906,8 +910,9 @@ grub_cmd_linux (grub_command_t cmd __attribute__ ((unused)),
 		      "kernel does not support 64-bit addressing");
 #endif
 
+  grub_printf ("Linux version: 0x%x\n", linux_params.version);
   if (grub_le_to_cpu16 (linux_params.version) >= 0x020f)
-    {
+   {
       grub_uint32_t lkio = lh.kernel_info_offset +
                            ((linux_params.setup_sects + 1) << GRUB_DISK_SECTOR_BITS);
       grub_ssize_t lki_remaining;
@@ -925,6 +930,8 @@ grub_cmd_linux (grub_command_t cmd __attribute__ ((unused)),
           goto fail;
         }
 
+      grub_printf("Linux kernel header info sizes, whole: 0x%x, fixed: 0x%x\n",
+                  lkih.whole_size, lkih.fixed_size);
       linux_kernel_info = grub_zalloc (lkih.whole_size);
       if (!linux_kernel_info)
         goto fail;
